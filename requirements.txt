@@ -1,0 +1,5 @@
+umap-learn
+seaborn
+plotly
+hdbscan
+numba==0.56.4

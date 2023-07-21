@@ -1,0 +1,1 @@
+docker build -t variational_clustering:latest .

@@ -11,7 +11,7 @@ import seaborn as sns
 import plotly.express as px
 
 from models import VADE
-from datasets import CustomMNIST, CustomFMNIST, CustomCIFAR10, Brach3
+from datasets import CustomMNIST, CustomFMNIST, CustomCIFAR10, Brach3, WineQuality, Banknote
 from common_utils import cluster_accuracy, lossfun, add_gaussian_noise, kl_weight_schedule, compute_metrics
 
 
@@ -32,6 +32,7 @@ def parse_args():
     parser.add_argument('--pretrain_epochs', type=int, default=100)
     parser.add_argument('--tolerance', type=float, default=1e-3)
     parser.add_argument('--gradient_clip', type=float, default=0.2)
+    parser.add_argument('--kl_w', type=float, default=1.0)
 
     parser.add_argument('--kl_div_weight', type=float, default=1.0)
     parser.add_argument('--stabilize', type=bool, default=False)
@@ -75,6 +76,11 @@ def main(args):
             dataset = CustomCIFAR10('./data')
         elif args.dataset == 'brach3':
             dataset = Brach3('./data/brach3-5klas.txt')
+        elif args.dataset == 'winequality':
+            dataset = WineQuality('./data/winequality-white.csv')
+        elif args.dataset == 'banknote':
+            dataset = Banknote('./data/data_banknote_authentication.txt')
+        
         train_loader = torch.utils.data.DataLoader(dataset, batch_size=args.batch_size, shuffle=True)
 
         model = VADE(args.latent_dim, args.n_clusters, args.channel_dims, args.output_shape, device=args.device, gmm_n_init=args.gmm_n_init)
@@ -94,14 +100,14 @@ def main(args):
         kl_w_schedule = None if not args.better_pretrain else kl_weight_schedule(args.gamma, args.gamma_steps, args.beta_steps, args.tune_steps)
         num_epochs = args.epochs if not args.better_pretrain else args.gamma_steps + args.beta_steps + args.tune_steps
         optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
-        # lr_scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=num_epochs//100, gamma=0.99)
+        lr_scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=num_epochs // 50, gamma=0.95)
 
         for epoch in range(num_epochs):
             kl_div_weight = 0
             if args.better_pretrain:
-                kl_div_weight = kl_w_schedule[epoch]
+                kl_div_weight = kl_w_schedule[epoch] * args.kl_w
             else:
-                kl_div_weight = args.kl_div_weight
+                kl_div_weight = args.kl_div_weight * args.kl_w
 
             model.train()
             total_loss = 0
@@ -112,18 +118,12 @@ def main(args):
                 x_train = x.clone()
                 if args.add_gaussian_noise:
                     x_train = add_gaussian_noise(x_train, 0.1)
-                    if args.dataset == 'mnist':
+                    if args.dataset_distr == 'bernoulli':
                         x_train = torch.clamp(x_train, min=1e-9, max=1-1e-9)
                 x_train = x_train.to(args.device)
 
                 optimizer.zero_grad()
-                # if args.better_pretrain and epoch < args.gamma_steps:
-                #     z, _ = model.encode(x_train)
-                #     recon_x = model.decode(z)
-                #     loss = F.mse_loss(recon_x, x_train, reduction='sum') / x.size(0)
-                #     recon_loss = loss.detach().cpu().item()
-                #     kl_loss = 0
-                # else:    
+
                 recon_x, mu, logvar = model(x_train)
                 loss, recon_loss, kl_loss = lossfun(model, x, recon_x, mu, logvar, distr=args.dataset_distr, kl_div_weight=kl_div_weight)
                 recon_loss = recon_loss.detach().cpu().item()
@@ -169,7 +169,7 @@ def main(args):
                 cluster_metrics = compute_metrics(ts, ys)
             print(f'Accuracy: {cluster_metrics["acc"]:.4f}')
 
-            # lr_scheduler.step()
+            lr_scheduler.step()
 
             metrics['loss_parts_ratios'].append({'elbo_loss_ratio': total_kl_loss / total_recon_loss, 'run_idx': ith_run, 'epoch': epoch})
             metrics['loss_history'].append({'loss': total_loss / len(train_loader), 'run_idx': ith_run, 'epoch': epoch})

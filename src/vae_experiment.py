@@ -8,10 +8,11 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
 import plotly.express as px
-from sklearn.cluster import KMeans 
+from sklearn.mixture import GaussianMixture 
+from sklearn.manifold import TSNE
 
 from models import VAE
-from datasets import CustomMNIST, CustomFMNIST, CustomCIFAR10, Brach3
+from datasets import CustomMNIST, CustomFMNIST, CustomCIFAR10, Brach3, WineQuality, Banknote
 from common_utils import cluster_accuracy, add_gaussian_noise, vae_loss, reparametrize, compute_metrics
 
 
@@ -60,6 +61,11 @@ def main(args):
             dataset = CustomCIFAR10('./data')
         elif args.dataset == 'brach3':
             dataset = Brach3('./data/brach3-5klas.txt')
+        elif args.dataset == 'winequality':
+            dataset = WineQuality('./data/winequality-white.csv')
+        elif args.dataset == 'banknote':
+            dataset = Banknote('./data/data_banknote_authentication.txt')
+
         train_loader = torch.utils.data.DataLoader(dataset, batch_size=args.batch_size, shuffle=True)
 
         model = VAE(args.latent_dim, args.channel_dims, args.output_shape)
@@ -67,7 +73,7 @@ def main(args):
         print(model)
 
         optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
-        # lr_scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=args.epochs//100, gamma=0.96)
+        lr_scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=args.epochs // 50, gamma=0.95)
 
         for epoch in range(args.epochs):
             model.train()
@@ -89,7 +95,7 @@ def main(args):
                 total_loss += loss.detach().cpu().numpy().item()
                 optimizer.step()
 
-            print(f'Epoch: {epoch}, Loss: {total_loss / len(train_loader):.4f}', end=', ')
+            print(f'Epoch: {epoch}, Loss: {total_loss / len(train_loader):.4f}')
                 
             model.eval()
             zs, ts = [], []
@@ -101,15 +107,16 @@ def main(args):
                 zs.append(z)
                 ts.append(t.cpu().detach().numpy())
 
-            zs = np.concatenate(zs, axis=0)
-            ts = np.concatenate(ts, axis=0)
-            ys = KMeans(n_clusters=args.n_clusters).fit_predict(zs)
             if epoch == args.epochs - 1:
+                zs = np.concatenate(zs, axis=0)
+                ts = np.concatenate(ts, axis=0)
+                gmm = GaussianMixture(n_components=args.n_clusters, covariance_type='diag')
+                ys = gmm.fit_predict(zs)
                 cluster_metrics = compute_metrics(ts, ys, zs)
+                print(cluster_metrics)
             else:
-                cluster_metrics = compute_metrics(ts, ys)
-            print(f'Accuracy: {cluster_metrics["acc"]:.4f}')
-
+                cluster_metrics = {'acc': 0}
+   
             # lr_scheduler.step()
 
             metrics['loss_history'].append({'loss': total_loss / len(train_loader), 'run_idx': ith_run, 'epoch': epoch})
@@ -117,16 +124,14 @@ def main(args):
             if epoch == args.epochs - 1:
                 metrics['silhouette_score'].append({'run_idx': ith_run, 'silhouette': cluster_metrics["silhouette"]})
                 metrics['calinski_harabasz_score'].append({'run_idx': ith_run, 'calinski_harabasz': cluster_metrics["calinski_harabasz"]})
+        
+        tsne = TSNE(n_components=2)
+        zs_tsne = tsne.fit_transform(zs)
+        if args.latent_dim == 2:
+            zs_tsne = zs
+        latent_df = pd.DataFrame({'z1': zs_tsne[:, 0], 'z2': zs_tsne[:, 1], 'y': ys, 't': ts})
+        latent_df.to_csv(run_dir / f'latent_{ith_run}.csv', index=False)
 
-            # tolerance stopping
-            if epoch == 0:
-                last_preds = ys.copy()
-            else:
-                if 1 - cluster_accuracy(last_preds, ys) < args.tolerance:
-                    break
-                else:
-                    last_preds = ys.copy()
-            
         torch.save(model.state_dict(), run_dir / f'model_final_{ith_run}.pt')
 
     # save results

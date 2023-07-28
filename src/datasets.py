@@ -89,11 +89,61 @@ class Brach3(Dataset):
     def __init__(self, path):
         self.path = path
         self.dataset = pd.read_csv(self.path, delim_whitespace=True)
+        self.scale()
+        self.dataset = self.dataset.astype('float32')
+        self.dataset.iloc[:, -1] = self.dataset.iloc[:, -1].astype('int')
+        self.dataset.iloc[:, -1] -= 1
 
     def __getitem__(self, i):
-        x = self.dataset.iloc[i, :-1].values
+        x = torch.tensor(self.dataset.iloc[i, :-1].values, dtype=torch.float32)
         t = self.dataset.iloc[i, -1]
         return x, t
 
     def __len__(self):
         return len(self.dataset)
+    
+    def scale(self):
+        self.dataset.iloc[:, :-1] = (self.dataset.iloc[:, :-1] - self.dataset.iloc[:, :-1].mean()) / self.dataset.iloc[:, :-1].std()
+        return self
+
+class WineQuality(Dataset):
+    def __init__(self, path):
+        self.path = path
+        self.dataset = pd.read_csv(self.path, sep=';')
+        self.scale()
+        self.dataset = self.dataset.astype('float32')
+        self.dataset.iloc[:, -1] = self.dataset.iloc[:, -1].astype('int')
+        self.dataset.iloc[:, -1] -= self.dataset.iloc[:, -1].min()
+
+    def __getitem__(self, i):
+        x = torch.tensor(self.dataset.iloc[i, :-1].values, dtype=torch.float32)
+        t = self.dataset.iloc[i, -1]
+        return x, t
+    
+    def __len__(self):
+        return len(self.dataset)
+    
+    def scale(self):
+        self.dataset.iloc[:, :-1] = (self.dataset.iloc[:, :-1] - self.dataset.iloc[:, :-1].mean()) / self.dataset.iloc[:, :-1].std()
+        return self
+    
+
+class Banknote(Dataset):
+    def __init__(self, path):
+        self.path = path
+        self.dataset = pd.read_csv(self.path)
+        self.scale()
+        self.dataset = self.dataset.astype('float32')
+        self.dataset.iloc[:, -1] = self.dataset.iloc[:, -1].astype('int')
+
+    def __getitem__(self, i):
+        x = torch.tensor(self.dataset.iloc[i, :-1].values, dtype=torch.float32)
+        t = self.dataset.iloc[i, -1]
+        return x, t
+    
+    def __len__(self):
+        return len(self.dataset)
+    
+    def scale(self):
+        self.dataset.iloc[:, :-1] = (self.dataset.iloc[:, :-1] - self.dataset.iloc[:, :-1].mean()) / self.dataset.iloc[:, :-1].std()
+        return self

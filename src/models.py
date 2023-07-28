@@ -258,7 +258,7 @@ class VADE(nn.Module):
         xs = torch.cat(xs, dim=0).cpu().detach().numpy()
         xs = xs.reshape(xs.shape[0], -1)
         zs = zs.reshape(zs.shape[0], -1)
-        
+
         if umap_mixture_init:
             umap = UMAP(n_neighbors=100, min_dist=1.0, n_components=self.latent_dim, verbose=True)
             x_transform = umap.fit_transform(xs)
@@ -279,8 +279,13 @@ class VADE(nn.Module):
             self.logvar.data = torch.from_numpy(mixture_logvars).float()
 
         else:
-            gmm = GaussianMixture(n_components=self.n_classes, covariance_type='diag', n_init=self.gmm_n_init, max_iter=10000)
-            preds = gmm.fit_predict(zs)
+            while True:
+                try:
+                    gmm = GaussianMixture(n_components=self.n_classes, covariance_type='diag', n_init=self.gmm_n_init, max_iter=10000)
+                    preds = gmm.fit_predict(zs)
+                except ValueError:
+                    continue
+                break
             cluster_metrics = compute_metrics(ts, preds, zs)
             print(f'Accuracy: {cluster_metrics["acc"]:.4f} | Silhouette: {cluster_metrics["silhouette"]:.4f} | C-H: {cluster_metrics["calinski_harabasz"]:.4f}')
 
@@ -297,9 +302,9 @@ class VADE(nn.Module):
             mu, logvar = self.encode(x)
             z = torch.stack([reparametrize(mu, logvar) for _ in range(n_samples)], dim=1)
             log_p_z_given_c = (torch.sum((-0.5 * self.logvar), dim=1) - 
-                               0.5 * (math.log(2 * math.pi) + torch.sum(torch.pow((z.unsqueeze(2) - self.mu), 2) / torch.exp(self.logvar), dim=3)))
+                               0.5 * (math.log(2 * math.pi) + torch.sum(torch.pow((z.unsqueeze(2) - self.mu), 2) / (torch.exp(self.logvar) + 1e-9), dim=3)))
             p_z_c = torch.exp(log_p_z_given_c) * self.weights
-            y = p_z_c / torch.sum(p_z_c, dim=2, keepdim=True)
+            y = p_z_c / (torch.sum(p_z_c, dim=2, keepdim=True) + 1e-9)
             y = torch.sum(y, dim=1)
             pred = torch.argmax(y, dim=1)
 

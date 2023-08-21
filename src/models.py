@@ -80,15 +80,12 @@ class VAE(nn.Module):
     def __init__(self, latent_dim, channel_dims, output_shape):
         super().__init__()
         self.encoder = EncoderBlock(channel_dims)
-        self.encoder_relu = nn.ReLU()
         self.fc_mu = nn.Linear(channel_dims[-1], latent_dim)
         self.fc_logvar = nn.Linear(channel_dims[-1], latent_dim)
         self.fc_decode = nn.Linear(latent_dim, channel_dims[-1])
-        self.decoder_relu = nn.ReLU()
         self.decoder = DecoderBlock(channel_dims[::-1], output_shape)
 
     def encode(self, x):
-        # x = self.encoder_relu(self.encoder(x))
         x = self.encoder(x)
         mu = self.fc_mu(x)
         logvar = self.fc_logvar(x)
@@ -96,7 +93,6 @@ class VAE(nn.Module):
         return mu, logvar
     
     def decode(self, z):
-        # z = self.decoder_relu(self.fc_decode(z))
         z = self.fc_decode(z)
         x = self.decoder(z)
 
